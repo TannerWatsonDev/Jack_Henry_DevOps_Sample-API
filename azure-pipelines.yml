@@ -16,4 +16,23 @@ steps:
     command: build
     Dockerfile: '**/Dockerfile'
     tags: |
-      latest
+      local
+
+- powershell: |
+    docker run -d --name jh-api -p 8080:8080 jackhenry-devops-api:local
+    Start-Sleep -Seconds 3
+
+    Write-Host "Testing /health..."
+    $resp = Invoke-WebRequest -UseBasicParsing http://localhost:8080/health
+    Write-Host "StatusCode: $($resp.StatusCode)"
+    Write-Host "Body: $($resp.Content)"
+
+    if ($resp.StatusCode -ne 200) { throw "Health check failed" }
+  displayName: Run container and health check
+
+- powershell: |
+    docker logs jh-api
+    docker stop jh-api
+    docker rm jh-api
+  displayName: Cleanup container
+  condition: always()
