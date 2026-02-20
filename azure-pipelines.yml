@@ -14,12 +14,15 @@ steps:
   displayName: Build Docker image
   inputs:
     command: build
+    repository: jackhenry-devops-api
     Dockerfile: '**/Dockerfile'
     tags: |
       local
 
 - powershell: |
-    docker run -d --name jh-api -p 8080:8080 jackhenry-devops-api:local
+    $ErrorActionPreference = "Stop"
+
+    docker run -d --name jh-api -p 8080:8080 jackhenry-devops-api:local | Out-Host
     Start-Sleep -Seconds 3
 
     Write-Host "Testing /health..."
