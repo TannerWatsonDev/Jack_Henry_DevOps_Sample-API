@@ -1,0 +1,11 @@
+@JackHenryDevOpsApi_HostAddress = http://localhost:5279
+
+GET {{JackHenryDevOpsApi_HostAddress}}/
+Accept: text/plain
+
+###
+
+GET {{JackHenryDevOpsApi_HostAddress}}/health
+Accept: text/plain
+
+###
