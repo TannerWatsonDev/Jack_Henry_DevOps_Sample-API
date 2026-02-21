@@ -1,43 +1,150 @@
-trigger:
-- main
+# ----------------------------------------
+# PIPELINE TRIGGER
+# ----------------------------------------
 
+# This section defines WHEN the pipeline runs automatically
+trigger:
+  # Run the pipeline whenever a commit is pushed to the main branch
+  - main
+
+
+# ----------------------------------------
+# AGENT / EXECUTION ENVIRONMENT
+# ----------------------------------------
+
+# This section defines WHERE the pipeline runs
 pool:
+  # Use the self-hosted agent pool named "SelfHosted"
+  # In your case, this means the pipeline runs on your PC (agent: tanner-pc)
   name: SelfHosted
 
+
+# ----------------------------------------
+# PIPELINE STEPS
+# ----------------------------------------
+
+# This section is an ordered list of actions
+# Azure DevOps runs these from top to bottom
 steps:
+
+
+# ----------------------------------------
+# STEP 1: CHECK OUT SOURCE CODE
+# ----------------------------------------
+
+# This step pulls your GitHub repository onto the agent machine
+# Without this, there would be no code or Dockerfile available
 - checkout: self
 
+
+# ----------------------------------------
+# STEP 2: BUILD THE DOCKER IMAGE
+# ----------------------------------------
+
+# This step uses Azure DevOps' built-in Docker task
+# It wraps the `docker build` command
 - task: Docker@2
+
+  # Friendly name shown in the pipeline UI
   displayName: Build image (tagged)
+
+  # Inputs passed to the Docker task
   inputs:
+
+    # Tell Docker to build an image (equivalent to `docker build`)
     command: build
+
+    # Name of the Docker image being created
+    # This is CRITICAL — without this, the image would be "dangling"
     repository: jackhenry-devops-api
+
+    # Location of the Dockerfile
+    # '**/' means "search the repo for a Dockerfile"
     Dockerfile: '**/Dockerfile'
+
+    # Directory Docker treats as the build context (.)
+    # This is the root of your checked-out repo
     buildContext: '$(Build.SourcesDirectory)'
+
+    # Tag(s) applied to the image
+    # This results in: jackhenry-devops-api:local
     tags: |
       local
 
+
+# ----------------------------------------
+# STEP 3: VERIFY IMAGE EXISTS (VISIBILITY STEP)
+# ----------------------------------------
+
+# This step runs a raw PowerShell command on the agent machine
+# It is used to confirm that the image was actually created
 - powershell: |
-    docker images jackhenry-devops-api --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}"
+    docker images jackhenry-devops-api
+
+  # Friendly name shown in the pipeline UI
   displayName: Verify image tag exists
 
+
+# ----------------------------------------
+# STEP 4: RUN CONTAINER AND CHECK /health
+# ----------------------------------------
+
+# This step starts the container and validates the API
+# If anything fails here, the pipeline FAILS
 - powershell: |
+
+    # Tell PowerShell to immediately fail the step if any command errors
     $ErrorActionPreference = "Stop"
 
-    docker run -d --name jh-api -p 8080:8080 jackhenry-devops-api:local | Out-Host
+    # Run the Docker container in detached mode
+    # -d              → run in background
+    # --name jh-api   → name the container
+    # -p 8080:8080    → map host port 8080 to container port 8080
+    docker run -d --name jh-api -p 8080:8080 jackhenry-devops-api:local
+
+    # Give the application a few seconds to start
     Start-Sleep -Seconds 3
 
+    # Log what we are about to test
     Write-Host "Testing /health..."
+
+    # Send an HTTP request to the API's health endpoint
+    # This request is made FROM the agent machine
     $resp = Invoke-WebRequest -UseBasicParsing http://localhost:8080/health
+
+    # Log the HTTP status code
     Write-Host "StatusCode: $($resp.StatusCode)"
+
+    # Log the response body ("Healthy")
     Write-Host "Body: $($resp.Content)"
 
+    # QUALITY GATE:
+    # If the API does NOT return HTTP 200, fail the pipeline
     if ($resp.StatusCode -ne 200) { throw "Health check failed" }
+
+  # Friendly name shown in the pipeline UI
   displayName: Run container and health check
 
+
+# ----------------------------------------
+# STEP 5: CLEANUP (ALWAYS RUNS)
+# ----------------------------------------
+
+# This step cleans up the container so the agent stays clean
+# It runs EVEN IF earlier steps fail
 - powershell: |
+
+    # Print container logs (useful for debugging failures)
     docker logs jh-api
+
+    # Stop the running container
     docker stop jh-api
+
+    # Remove the container entirely
     docker rm jh-api
+
+  # Friendly name shown in the pipeline UI
   displayName: Cleanup container
+
+  # Ensure this step always runs, even on failure
   condition: always()
